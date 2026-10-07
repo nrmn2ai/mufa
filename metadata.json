@@ -1,0 +1,7 @@
+{
+  "name": "Melodiya - Real-Time AI Vocal Accompaniment",
+  "description": "Instant real-time adaptive music accompaniment for singers and musicians that detects pitch, tempo, and vocal tone in under 3 seconds to compose live harmonized melodies and morph musical styles dynamically.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
