@@ -395,6 +395,7 @@ export class MusicEngine {
       const filter = this.ctx!.createBiquadFilter();
 
       filter.type = 'lowpass';
+      let duration = 1.45;
 
       if (pad === 'oriental_pad') {
         osc.type = idx % 2 === 0 ? 'triangle' : 'sawtooth';
@@ -403,7 +404,7 @@ export class MusicEngine {
         gain.gain.setValueAtTime(0.001, time);
         gain.gain.linearRampToValueAtTime(0.12, time + 0.04);
         gain.gain.exponentialRampToValueAtTime(0.001, time + 1.4);
-        osc.stop(time + 1.45);
+        duration = 1.45;
       } else if (pad === 'acoustic_piano') {
         osc.type = 'triangle';
         filter.frequency.setValueAtTime(1600, time);
@@ -411,21 +412,21 @@ export class MusicEngine {
         gain.gain.setValueAtTime(0.001, time);
         gain.gain.linearRampToValueAtTime(0.14, time + 0.02);
         gain.gain.exponentialRampToValueAtTime(0.001, time + 2.0);
-        osc.stop(time + 2.05);
+        duration = 2.05;
       } else if (pad === 'vintage_rhodes') {
         osc.type = 'sine';
         filter.frequency.setValueAtTime(950, time);
         gain.gain.setValueAtTime(0.001, time);
         gain.gain.linearRampToValueAtTime(0.15, time + 0.03);
         gain.gain.exponentialRampToValueAtTime(0.001, time + 1.5);
-        osc.stop(time + 1.55);
+        duration = 1.55;
       } else if (pad === 'synth_poly') {
         osc.type = 'sawtooth';
         filter.frequency.setValueAtTime(1900, time);
         gain.gain.setValueAtTime(0.001, time);
         gain.gain.linearRampToValueAtTime(0.1, time + 0.02);
         gain.gain.exponentialRampToValueAtTime(0.001, time + 1.1);
-        osc.stop(time + 1.15);
+        duration = 1.15;
       } else {
         // warm_strings
         osc.type = 'sine';
@@ -433,7 +434,7 @@ export class MusicEngine {
         gain.gain.setValueAtTime(0.001, time);
         gain.gain.linearRampToValueAtTime(0.09, time + 0.35);
         gain.gain.exponentialRampToValueAtTime(0.001, time + 2.8);
-        osc.stop(time + 2.85);
+        duration = 2.85;
       }
 
       osc.frequency.setValueAtTime(freq, time);
@@ -441,6 +442,7 @@ export class MusicEngine {
       filter.connect(gain);
       gain.connect(this.chordGain!);
       osc.start(time);
+      osc.stop(time + duration);
     });
   }
 
