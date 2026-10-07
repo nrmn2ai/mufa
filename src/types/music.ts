@@ -79,6 +79,7 @@ export interface StyleAnalysisResult {
 
 export interface AccompanimentSettings {
   autoStyleDetect: boolean;
+  autoStartOnVoice: boolean;          // Auto-detect genre and start music as soon as user sings!
   selectedStyle: MusicalStyleId;
   selectedScale: ScaleType;
   selectedRootKey: string;

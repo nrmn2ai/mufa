@@ -44,6 +44,7 @@ import { SharePerformanceModal } from './components/SharePerformanceModal';
 
 const DEFAULT_SETTINGS: AccompanimentSettings = {
   autoStyleDetect: true,
+  autoStartOnVoice: true, // Auto-detect genre and start music as soon as user sings!
   selectedStyle: 'traditional_persian',
   selectedScale: 'shur',
   selectedRootKey: 'D',
@@ -84,6 +85,14 @@ export default function App() {
   const [isAccompanimentPlaying, setIsAccompanimentPlaying] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordTimer, setRecordTimer] = useState(0);
+
+  // Auto-start notification state
+  const [autoStartedNotice, setAutoStartedNotice] = useState<{
+    show: boolean;
+    genreNameFa: string;
+    genreNameEn: string;
+    timestamp: number;
+  } | null>(null);
 
   // Pitch & Analysis state
   const [pitchData, setPitchData] = useState<PitchDetectionResult>({
@@ -203,10 +212,19 @@ export default function App() {
         cancelAnimationFrame(animFrameRef.current);
         animFrameRef.current = null;
       }
+      if (engineRef.current.isPlaying()) {
+        engineRef.current.stopAccompaniment();
+        setIsAccompanimentPlaying(false);
+      }
       return;
     }
 
-    // Turn on
+    // Reset initial detection so the first singing phrase triggers fresh genre classification & auto-play
+    if (vocalClassifierRef.current) {
+      vocalClassifierRef.current.resetInitialDetection();
+    }
+
+    // Turn on microphone
     const analyser = await engineRef.current.connectMicrophone();
     if (analyser) {
       analyserRef.current = analyser;
@@ -256,14 +274,47 @@ export default function App() {
           vibrato,
         });
 
-        // Trigger instant accompaniment note response (< 100ms)!
-        engineRef.current.onSingerNoteDetected(res.midiNote, res.frequency, res.confidence);
+        // 1. AUTO-DETECT GENRE & AUTO-START MUSIC AS SOON AS USER SINGS!
+        if (!engineRef.current.isPlaying() && settings.autoStartOnVoice) {
+          const autoAnalysis = vocalClassifierRef.current.classify(
+            settings.autoStyleDetect ? undefined : settings.selectedStyle
+          );
+          const detectedStyle = autoAnalysis.currentStyle;
+          const detectedMeta = MUSICAL_STYLES[detectedStyle];
 
-        // Auto-start accompaniment if user began singing and it wasn't running!
-        if (!engineRef.current.isPlaying()) {
+          const styleUpdate: Partial<AccompanimentSettings> = {
+            selectedStyle: detectedStyle,
+            bpm: detectedMeta.bpmDefault,
+            selectedScale: detectedMeta.scales[0] || 'minor',
+            leadInstrument: detectedMeta.defaultLead,
+            padInstrument: detectedMeta.defaultPad,
+            bassInstrument: detectedMeta.defaultBass,
+            drumKit: detectedMeta.defaultDrums,
+          };
+
+          if (settings.autoKeyDetect) {
+            const keyDetect = vocalClassifierRef.current.detectScaleAndKey();
+            styleUpdate.selectedRootKey = keyDetect.rootKey;
+          }
+
+          engineRef.current.updateSettings(styleUpdate);
+          handleUpdateSettings(styleUpdate);
+          setStyleAnalysis(autoAnalysis);
+
+          // Launch accompaniment immediately in the detected genre!
           engineRef.current.startAccompaniment();
           setIsAccompanimentPlaying(true);
+
+          setAutoStartedNotice({
+            show: true,
+            genreNameFa: detectedMeta.nameFa,
+            genreNameEn: detectedMeta.nameEn,
+            timestamp: Date.now(),
+          });
         }
+
+        // 2. Trigger instant accompaniment note response & harmony (< 100ms)!
+        engineRef.current.onSingerNoteDetected(res.midiNote, res.frequency, res.confidence);
       }
 
       // Throttle UI and style classifier updates to 15fps (~65ms) to preserve CPU
@@ -278,10 +329,10 @@ export default function App() {
 
         setStyleAnalysis(analysis);
 
-        // If style switched dynamically during singing, update engine parameters!
+        // If style switched dynamically during singing, update engine parameters live!
         if (analysis.transitioning && analysis.currentStyle !== settings.selectedStyle) {
           const newMeta = MUSICAL_STYLES[analysis.currentStyle];
-          handleUpdateSettings({
+          const morphParams: Partial<AccompanimentSettings> = {
             selectedStyle: analysis.currentStyle,
             bpm: newMeta.bpmDefault,
             selectedScale: newMeta.scales[0] || settings.selectedScale,
@@ -289,6 +340,16 @@ export default function App() {
             padInstrument: newMeta.defaultPad,
             bassInstrument: newMeta.defaultBass,
             drumKit: newMeta.defaultDrums,
+          };
+
+          engineRef.current.updateSettings(morphParams);
+          handleUpdateSettings(morphParams);
+
+          setAutoStartedNotice({
+            show: true,
+            genreNameFa: newMeta.nameFa,
+            genreNameEn: newMeta.nameEn,
+            timestamp: Date.now(),
           });
         }
 
@@ -314,12 +375,43 @@ export default function App() {
     if (!engineRef.current) return;
     await engineRef.current.initAudio();
 
+    // 1. Immediately switch to the demo's genre and trigger music!
+    if (styleHint) {
+      const meta = MUSICAL_STYLES[styleHint];
+      const styleParams: Partial<AccompanimentSettings> = {
+        selectedStyle: styleHint,
+        bpm: meta.bpmDefault,
+        selectedScale: meta.scales[0] || 'minor',
+        leadInstrument: meta.defaultLead,
+        padInstrument: meta.defaultPad,
+        bassInstrument: meta.defaultBass,
+        drumKit: meta.defaultDrums,
+      };
+      engineRef.current.updateSettings(styleParams);
+      handleUpdateSettings(styleParams);
+
+      setStyleAnalysis((prev) => ({
+        ...prev,
+        currentStyle: styleHint,
+        reasonFa: `سبک «${meta.nameFa}» از صدای خواننده تشخیص داده شد و پخش موسیقی آغاز گردید`,
+        reasonEn: `Genre "${meta.nameEn}" detected from vocal input — music accompaniment started`,
+      }));
+
+      setAutoStartedNotice({
+        show: true,
+        genreNameFa: meta.nameFa,
+        genreNameEn: meta.nameEn,
+        timestamp: Date.now(),
+      });
+    }
+
+    // 2. Start accompaniment automatically if not playing!
     if (!engineRef.current.isPlaying()) {
       engineRef.current.startAccompaniment();
       setIsAccompanimentPlaying(true);
     }
 
-    // Trigger instant counter-melody / harmony in engine
+    // 3. Trigger instant counter-melody / harmony in engine
     engineRef.current.onSingerNoteDetected(noteMidi, freq, 0.95);
 
     // Update Pitch visualizer
@@ -490,6 +582,95 @@ export default function App() {
 
       {/* Main Studio Workspace */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 py-6 w-full flex flex-col gap-6">
+        {/* Live Vocal Auto-Start & Genre Detection Banner */}
+        <div
+          className={`w-full rounded-2xl border p-4 transition-all duration-500 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+            isAccompanimentPlaying
+              ? 'bg-gradient-to-r from-emerald-950/80 via-slate-900/90 to-amber-950/80 border-emerald-500/50 shadow-emerald-950/40 ring-1 ring-emerald-500/30'
+              : isListening
+                ? 'bg-gradient-to-r from-cyan-950/70 via-slate-900/90 to-slate-900/90 border-cyan-500/50 animate-pulse-subtle'
+                : 'bg-slate-900/50 border-slate-800'
+          }`}
+        >
+          <div className="flex items-center gap-3.5">
+            <div
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-transform ${
+                isAccompanimentPlaying
+                  ? 'bg-emerald-500 text-slate-950 font-bold shadow-lg shadow-emerald-500/40 scale-105'
+                  : isListening
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                    : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {isAccompanimentPlaying ? (
+                <Music className="w-6 h-6 animate-pulse" />
+              ) : isListening ? (
+                <Radio className="w-6 h-6 animate-spin" />
+              ) : (
+                <Mic className="w-6 h-6" />
+              )}
+            </div>
+
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-extrabold text-sm sm:text-base text-slate-100">
+                  {isAccompanimentPlaying
+                    ? (lang === 'fa'
+                        ? `🎵 سبک «${activeStyleMeta.nameFa}» فعال است و موسیقی خودکار می‌نوازد!`
+                        : `🎵 Playing in Detected Genre: "${activeStyleMeta.nameEn}"!`)
+                    : isListening
+                      ? (lang === 'fa'
+                          ? '🎧 میکروفن آماده است • همین حالا شروع به خواندن کنید!'
+                          : '🎧 Ready & Listening • Start singing to detect genre & auto-play!')
+                      : (lang === 'fa'
+                          ? 'حالت تشخیص سبک و همراهی خودکار با صدا (Auto-Detect & Auto-Play)'
+                          : 'Auto-Detect Genre & Auto-Play Music Mode')
+                  }
+                </h3>
+
+                {isAccompanimentPlaying && (
+                  <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/90 border border-emerald-700/60 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                    {lang === 'fa' ? 'نواختن زنده فعال' : 'Live Accomp Active'}
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                {isAccompanimentPlaying
+                  ? (lang === 'fa'
+                      ? 'ملودی و سازهای همراهی با تن صدای شما شروع به نواختن کردند. اگر تحریر، سرعت یا احساس خواندن را تغییر دهید، سبک موسیقی نیز به صورت خودکار تغییر می‌کند.'
+                      : 'Accompaniment started automatically based on your vocal timbre. Changing your singing style will dynamically morph the genre in real-time.')
+                  : isListening
+                    ? (lang === 'fa'
+                        ? 'به محض اینکه دهان به آواز باز کنید، هوش مصنوعی تن و ریتم شما را شناسایی کرده و موسیقی همراهی را در سبک متناسب شروع می‌کند (بدون نیاز به فشردن دکمه).'
+                        : 'As soon as you sing the first phrase, the app identifies your genre and immediately launches tailored music accompaniment without manual clicking.')
+                    : (lang === 'fa'
+                        ? 'میکروفن را روشن کنید یا از بخش «شبیه‌ساز و تست خوانندگی» در پایین صفحه یک قطعه را امتحان نمایید تا شروع خودکار را تجربه کنید.'
+                        : 'Enable the microphone or try a sample from the Virtual Vocalist Simulator below to experience auto-detection & music playback.')
+                }
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+            {!isListening ? (
+              <button
+                onClick={handleToggleMic}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/25 active:scale-95 cursor-pointer"
+              >
+                <Mic className="w-4 h-4" />
+                <span>{lang === 'fa' ? 'فعال‌سازی میکروفن و شروع' : 'Enable Mic & Start'}</span>
+              </button>
+            ) : !isAccompanimentPlaying ? (
+              <div className="flex items-center gap-2 text-xs font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-800/60 px-3 py-1.5 rounded-xl">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                <span>{lang === 'fa' ? 'در انتظار صدای آواز...' : 'Waiting for voice...'}</span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
         {/* 1. Pre-Performance Genre Selector */}
         <PrePerformanceGenreSelector
           selectedStyle={settings.selectedStyle}

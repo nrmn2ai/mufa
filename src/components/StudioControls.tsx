@@ -10,7 +10,8 @@ import {
   MicOff, 
   Play, 
   Square,
-  Sparkles
+  Sparkles,
+  Zap
 } from 'lucide-react';
 import { AccompanimentSettings, ScaleType } from '../types/music';
 
@@ -90,6 +91,24 @@ export function StudioControls({
               {isAccompanimentPlaying
                 ? (lang === 'fa' ? 'توقف پخش ملودی' : 'Stop Accompaniment')
                 : (lang === 'fa' ? 'پخش همراهی همزمان' : 'Start Accompaniment')}
+            </span>
+          </button>
+
+          {/* Auto-Start Music on Voice Toggle */}
+          <button
+            onClick={() => onUpdateSettings({ autoStartOnVoice: !settings.autoStartOnVoice })}
+            className={`px-3 py-2.5 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-1.5 transition-all border ${
+              settings.autoStartOnVoice
+                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-sm'
+                : 'bg-slate-800/80 text-slate-400 border-slate-700'
+            }`}
+            title={lang === 'fa' ? 'شروع خودکار نواختن با شروع آواز' : 'Auto-detect genre and start music on voice'}
+          >
+            <Zap className={`w-4 h-4 ${settings.autoStartOnVoice ? 'text-emerald-400 fill-emerald-400/30' : 'text-slate-500'}`} />
+            <span>
+              {settings.autoStartOnVoice
+                ? (lang === 'fa' ? 'شروع خودکار با صدا: فعال' : 'Auto-Play on Voice: ON')
+                : (lang === 'fa' ? 'شروع خودکار: غیرفعال' : 'Auto-Play: OFF')}
             </span>
           </button>
 
